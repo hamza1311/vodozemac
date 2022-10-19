@@ -415,7 +415,7 @@ mod libolm {
     };
     use crate::{
         types::{Curve25519Keypair, Curve25519SecretKey},
-        utilities::{Decode, DecodeSecret},
+        utilities::{Decode, DecodeSecret, Encode},
         Ed25519Keypair, KeyId,
     };
 
@@ -426,6 +426,21 @@ mod libolm {
         published: bool,
         public_key: [u8; 32],
         private_key: Box<[u8; 32]>,
+    }
+
+    impl Encode for OneTimeKey {
+        fn encode(
+            &self,
+            writer: &mut impl std::io::Write,
+        ) -> Result<usize, crate::utilities::LibolmEncodeError> {
+            let mut ret = self.key_id.encode(writer)?;
+
+            ret += self.published.encode(writer)?;
+            ret += self.public_key.encode(writer)?;
+            ret += self.private_key.encode(writer)?;
+
+            Ok(ret)
+        }
     }
 
     impl Decode for OneTimeKey {
@@ -479,6 +494,32 @@ mod libolm {
         }
     }
 
+    impl Encode for FallbackKeysArray {
+        fn encode(
+            &self,
+            writer: &mut impl std::io::Write,
+        ) -> Result<usize, crate::utilities::LibolmEncodeError> {
+            let ret = match (&self.fallback_key, &self.previous_fallback_key) {
+                (None, None) => 0u8.encode(writer)?,
+                (Some(key), None) | (None, Some(key)) => {
+                    let mut ret = 1u8.encode(writer)?;
+                    ret += key.encode(writer)?;
+
+                    ret
+                }
+                (Some(key), Some(previous_key)) => {
+                    let mut ret = 2u8.encode(writer)?;
+                    ret += key.encode(writer)?;
+                    ret += previous_key.encode(writer)?;
+
+                    ret
+                }
+            };
+
+            Ok(ret)
+        }
+    }
+
     #[derive(Zeroize)]
     #[zeroize(drop)]
     pub(super) struct Pickle {
@@ -488,6 +529,22 @@ mod libolm {
         private_curve25519_key: Box<[u8; 32]>,
         one_time_keys: Vec<OneTimeKey>,
         fallback_keys: FallbackKeysArray,
+    }
+
+    impl Encode for Pickle {
+        fn encode(
+            &self,
+            writer: &mut impl std::io::Write,
+        ) -> Result<usize, crate::utilities::LibolmEncodeError> {
+            let mut ret = self.version.encode(writer)?;
+
+            ret += self.ed25519_keypair.encode(writer)?;
+            ret += self.public_curve25519_key.encode(writer)?;
+            ret += self.private_curve25519_key.encode(writer)?;
+            ret += self.one_time_keys.encode(writer)?;
+
+            Ok(ret)
+        }
     }
 
     impl Decode for Pickle {
