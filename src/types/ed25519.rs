@@ -62,6 +62,17 @@ impl Ed25519Keypair {
         Ok(Self { secret_key: secret_key.into(), public_key })
     }
 
+    #[cfg(feature = "libolm-compat")]
+    pub(crate) fn expanded_secret_key(&self) -> Box<[u8; 64]> {
+        match &self.secret_key {
+            SecretKeys::Normal(k) => {
+                let expanded = ExpandedSecretKey::from(k.as_ref());
+                expanded.to_bytes().into()
+            }
+            SecretKeys::Expanded(k) => k.to_bytes().into(),
+        }
+    }
+
     /// Get the public Ed25519 key of this keypair.
     pub fn public_key(&self) -> Ed25519PublicKey {
         self.public_key

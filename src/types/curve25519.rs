@@ -51,7 +51,6 @@ impl Curve25519SecretKey {
     ///
     /// **Note**: This creates a copy of the key which won't be zeroized, the
     /// caller of the method needs to make sure to zeroize the returned array.
-    #[cfg(test)]
     pub fn to_bytes(&self) -> [u8; 32] {
         self.0.to_bytes()
     }

@@ -17,7 +17,7 @@ use std::io::{Cursor, Read, Write};
 use thiserror::Error;
 use zeroize::Zeroize;
 
-use super::base64_decode;
+use super::{base64_decode, base64_encode};
 use crate::{cipher::Cipher, LibolmPickleError};
 
 const MAX_ARRAY_LENGTH: usize = u16::MAX as usize;
@@ -99,6 +99,19 @@ pub(crate) fn unpickle_libolm<P: Decode, T: TryFrom<P, Error = LibolmPickleError
     } else {
         Err(LibolmPickleError::Version(pickle_version, version))
     }
+}
+
+pub(crate) fn pickle_libolm<P>(pickle: P, pickle_key: &[u8]) -> Result<String, LibolmPickleError>
+where
+    P: Encode,
+{
+    let mut encoded = pickle.encode_to_vec().expect("TODO");
+
+    let cipher = Cipher::new_pickle(pickle_key);
+    let encrypted = cipher.encrypt_pickle(&encoded);
+    encoded.zeroize();
+
+    Ok(base64_encode(encrypted))
 }
 
 /// A trait for decoding non-secret values out of a libolm-compatible pickle.

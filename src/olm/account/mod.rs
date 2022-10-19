@@ -356,6 +356,13 @@ impl Account {
         const PICKLE_VERSION: u32 = 4;
         unpickle_libolm::<Pickle, _>(pickle, pickle_key, PICKLE_VERSION)
     }
+
+    #[cfg(feature = "libolm-compat")]
+    pub fn to_libolm_pickle(&self, pickle_key: &[u8]) -> Result<String, crate::LibolmPickleError> {
+        use self::libolm::Pickle;
+        use crate::utilities::pickle_libolm;
+        pickle_libolm::<Pickle>(self.into(), pickle_key)
+    }
 }
 
 impl Default for Account {
@@ -415,8 +422,8 @@ mod libolm {
     };
     use crate::{
         types::{Curve25519Keypair, Curve25519SecretKey},
-        utilities::{Decode, DecodeSecret, Encode},
-        Ed25519Keypair, KeyId,
+        utilities::{Decode, DecodeSecret, Encode, LibolmEd25519Keypair},
+        Curve25519PublicKey, Ed25519Keypair, KeyId,
     };
 
     #[derive(Debug, Zeroize)]
@@ -524,7 +531,7 @@ mod libolm {
     #[zeroize(drop)]
     pub(super) struct Pickle {
         version: u32,
-        ed25519_keypair: crate::utilities::LibolmEd25519Keypair,
+        ed25519_keypair: LibolmEd25519Keypair,
         public_curve25519_key: [u8; 32],
         private_curve25519_key: Box<[u8; 32]>,
         one_time_keys: Vec<OneTimeKey>,
@@ -543,6 +550,8 @@ mod libolm {
             ret += self.public_curve25519_key.encode(writer)?;
             ret += self.private_curve25519_key.encode(writer)?;
             ret += self.one_time_keys.encode(writer)?;
+            ret += self.fallback_keys.encode(writer)?;
+            ret += self.next_key_id.encode(writer)?;
 
             Ok(ret)
         }
@@ -570,6 +579,65 @@ mod libolm {
                 fallback_keys,
                 next_key_id,
             })
+        }
+    }
+
+    impl TryFrom<&FallbackKey> for OneTimeKey {
+        fn try_from(key: &FallbackKey) -> Result<Self, ()> {
+            Ok(OneTimeKey {
+                key_id: key.key_id.0.try_into().map_err(|_| ())?,
+                published: key.published(),
+                public_key: key.public_key().to_bytes(),
+                private_key: key.secret_key().to_bytes().into(),
+            })
+        }
+
+        type Error = ();
+    }
+
+    impl From<&Account> for Pickle {
+        fn from(account: &Account) -> Self {
+            let one_time_keys: Vec<_> = account
+                .one_time_keys
+                .secret_keys()
+                .iter()
+                .filter_map(|(key_id, secret_key)| {
+                    Some(OneTimeKey {
+                        key_id: key_id.0.try_into().ok()?,
+                        published: account.one_time_keys.is_secret_key_published(key_id),
+                        public_key: Curve25519PublicKey::from(secret_key).to_bytes(),
+                        private_key: secret_key.to_bytes().into(),
+                    })
+                })
+                .collect();
+
+            let fallback_keys = FallbackKeysArray {
+                fallback_key: account
+                    .fallback_keys
+                    .fallback_key
+                    .as_ref()
+                    .and_then(|f| f.try_into().ok()),
+                previous_fallback_key: account
+                    .fallback_keys
+                    .previous_fallback_key
+                    .as_ref()
+                    .and_then(|f| f.try_into().ok()),
+            };
+
+            let next_key_id = account.one_time_keys.next_key_id.try_into().unwrap_or_default();
+
+            Self {
+                version: 4,
+                ed25519_keypair: LibolmEd25519Keypair {
+                    private_key: account.signing_key.expanded_secret_key(),
+                    public_key: account.signing_key.public_key().as_bytes().to_owned(),
+                },
+                public_curve25519_key: account.diffie_hellman_key.public_key().to_bytes(),
+                private_curve25519_key: account.diffie_hellman_key.secret_key().to_bytes().into(),
+                one_time_keys,
+                fallback_keys,
+                next_key_id,
+            }
         }
     }
 
@@ -957,5 +1025,29 @@ mod test {
         } else {
             bail!("Invalid message type");
         }
+    }
+
+    #[test]
+    fn libolm_pickle_cycle() -> Result<()> {
+        let olm = OlmAccount::new();
+        olm.generate_one_time_keys(10);
+        olm.generate_fallback_key();
+
+        let key = b"DEFAULT_PICKLE_KEY";
+        let pickle = olm.pickle(olm_rs::PicklingMode::Encrypted { key: key.to_vec() });
+
+        let account = Account::from_libolm_pickle(&pickle, key).unwrap();
+        let vodozemac_pickle = account.to_libolm_pickle(key).unwrap();
+        let _ = Account::from_libolm_pickle(&vodozemac_pickle, key).unwrap();
+
+        let unpickled = OlmAccount::unpickle(
+            vodozemac_pickle,
+            olm_rs::PicklingMode::Encrypted { key: key.to_vec() },
+        )
+        .unwrap();
+
+        assert_eq!(olm.parsed_identity_keys(), unpickled.parsed_identity_keys());
+
+        Ok(())
     }
 }
