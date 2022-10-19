@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Write};
 
 use thiserror::Error;
 use zeroize::Zeroize;
 
 use super::base64_decode;
 use crate::{cipher::Cipher, LibolmPickleError};
+
+const MAX_ARRAY_LENGTH: usize = u16::MAX as usize;
 
 /// Error type describing failure modes for libolm pickle decoding.
 #[derive(Debug, Error)]
@@ -34,6 +36,21 @@ pub enum LibolmDecodeError {
          architecture"
     )]
     OutsideUsizeRange(u64),
+    /// An array in the pickle has too many elements.
+    #[error("An array has too many elements: {0}")]
+    ArrayTooBig(usize),
+}
+
+/// Error type describing failure modes for libolm pickle decoding.
+#[derive(Debug, Error)]
+pub enum LibolmEncodeError {
+    /// There was an error while writing to the buffer.
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+    /// The usize value that should be encoded doesn't fit into the u32 range of
+    /// values.
+    #[error("The usize value {0} does not fit into the u32 range of values.")]
+    OutsideU32Range(usize),
     /// An array in the pickle has too many elements.
     #[error("An array has too many elements: {0}")]
     ArrayTooBig(usize),
@@ -112,6 +129,15 @@ pub(crate) trait Decode {
     fn decode(reader: &mut impl Read) -> Result<Self, LibolmDecodeError>
     where
         Self: Sized;
+
+    /// Try to read and decode a value from the given byte slice.
+    fn decode_from_slice(buffer: &[u8]) -> Result<Self, LibolmDecodeError>
+    where
+        Self: Sized,
+    {
+        let mut cursor = Cursor::new(buffer);
+        Self::decode(&mut cursor)
+    }
 }
 
 /// Like `Decode`, but for decoding secret values.
@@ -185,7 +211,7 @@ impl<T: Decode> Decode for Vec<T> {
     fn decode(reader: &mut impl Read) -> Result<Self, LibolmDecodeError> {
         let length = usize::decode(reader)?;
 
-        if length > u16::MAX.into() {
+        if length > MAX_ARRAY_LENGTH {
             Err(LibolmDecodeError::ArrayTooBig(length))
         } else {
             let mut buffer = Vec::with_capacity(length);
@@ -216,5 +242,140 @@ impl Decode for LibolmEd25519Keypair {
         let private_key = <[u8; 64]>::decode_secret(reader)?;
 
         Ok(Self { public_key, private_key })
+    }
+}
+
+pub trait Encode {
+    fn encode(&self, writer: &mut impl Write) -> Result<usize, LibolmEncodeError>;
+
+    fn encode_to_vec(&self) -> Result<Vec<u8>, LibolmEncodeError> {
+        let buffer = Vec::new();
+        let mut cursor = Cursor::new(buffer);
+
+        self.encode(&mut cursor)?;
+
+        Ok(cursor.into_inner())
+    }
+}
+
+impl Encode for u8 {
+    fn encode(&self, writer: &mut impl Write) -> Result<usize, LibolmEncodeError> {
+        Ok(writer.write(&[*self])?)
+    }
+}
+
+impl Encode for bool {
+    fn encode(&self, writer: &mut impl Write) -> Result<usize, LibolmEncodeError> {
+        (*self as u8).encode(writer)
+    }
+}
+
+impl<const N: usize> Encode for [u8; N] {
+    fn encode(&self, writer: &mut impl Write) -> Result<usize, LibolmEncodeError> {
+        writer.write_all(self)?;
+
+        Ok(self.len())
+    }
+}
+
+impl Encode for u32 {
+    fn encode(&self, writer: &mut impl Write) -> Result<usize, LibolmEncodeError> {
+        let bytes = self.to_be_bytes();
+        bytes.encode(writer)
+    }
+}
+
+impl Encode for usize {
+    fn encode(&self, writer: &mut impl Write) -> Result<usize, LibolmEncodeError> {
+        let value = u32::try_from(*self).map_err(|_| LibolmEncodeError::OutsideU32Range(*self))?;
+
+        value.encode(writer)
+    }
+}
+
+impl<T: Encode> Encode for [T] {
+    fn encode(&self, writer: &mut impl Write) -> Result<usize, LibolmEncodeError> {
+        let length = self.len();
+
+        if length > MAX_ARRAY_LENGTH {
+            Err(LibolmEncodeError::ArrayTooBig(length))
+        } else {
+            let mut ret = length.encode(writer)?;
+
+            for value in self {
+                ret += value.encode(writer)?;
+            }
+
+            Ok(ret)
+        }
+    }
+}
+
+impl Encode for LibolmEd25519Keypair {
+    fn encode(&self, writer: &mut impl Write) -> Result<usize, LibolmEncodeError> {
+        let mut ret = self.public_key.encode(writer)?;
+        ret += self.private_key.encode(writer)?;
+
+        Ok(ret)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    macro_rules! encode_cycle {
+        ($value:expr => $type:ty) => {
+            let value = $value;
+
+            let encoded = value.encode_to_vec().expect("We can always encode into to a Vec");
+            let decoded = <$type>::decode_from_slice(&encoded)
+                .expect("Decoding a freshly encoded value always works");
+
+            assert_eq!(value, decoded, "The original value and the decoded value are not the same");
+        };
+    }
+
+    #[test]
+    fn encode_cycle() {
+        let key_pair =
+            LibolmEd25519Keypair { public_key: [10u8; 32], private_key: [20u8; 64].into() };
+
+        encode_cycle!(10u8 => u8);
+        encode_cycle!(10u32 => u32);
+        encode_cycle!(10usize => usize);
+        encode_cycle!(true => bool);
+        encode_cycle!(false => bool);
+        encode_cycle!(vec![1, 2, 3, 4] => Vec<u8>);
+
+        let encoded = key_pair.encode_to_vec().unwrap();
+        let decoded = LibolmEd25519Keypair::decode_from_slice(&encoded).unwrap();
+
+        assert_eq!(key_pair.public_key, decoded.public_key);
+        assert_eq!(key_pair.private_key, decoded.private_key);
+    }
+
+    proptest! {
+        #[test]
+        fn encode_cycle_u8(a in 0..u8::MAX) {
+            encode_cycle!(a => u8);
+        }
+
+        #[test]
+        fn encode_cycle_u32(a in 0..u32::MAX) {
+            encode_cycle!(a => u32);
+        }
+
+        #[test]
+        fn encode_cycle_usize(a in 0..u32::MAX) {
+            let a = a as usize;
+            encode_cycle!(a => usize);
+        }
+
+        fn encode_cycle_vec(bytes in prop::collection::vec(any::<u8>(), 0..1000)) {
+            encode_cycle!(bytes => Vec<u8>);
+        }
     }
 }
