@@ -413,6 +413,7 @@ impl From<AccountPickle> for Account {
 
 #[cfg(feature = "libolm-compat")]
 mod libolm {
+    use binencode::{Decode, DecodeError, Encode, EncodeError};
     use zeroize::Zeroize;
 
     use super::{
@@ -422,45 +423,17 @@ mod libolm {
     };
     use crate::{
         types::{Curve25519Keypair, Curve25519SecretKey},
-        utilities::{Decode, DecodeSecret, Encode, LibolmEd25519Keypair},
+        utilities::LibolmEd25519Keypair,
         Curve25519PublicKey, Ed25519Keypair, KeyId,
     };
 
-    #[derive(Debug, Zeroize)]
+    #[derive(Debug, Zeroize, Encode, Decode)]
     #[zeroize(drop)]
     struct OneTimeKey {
         key_id: u32,
         published: bool,
         public_key: [u8; 32],
         private_key: Box<[u8; 32]>,
-    }
-
-    impl Encode for OneTimeKey {
-        fn encode(
-            &self,
-            writer: &mut impl std::io::Write,
-        ) -> Result<usize, crate::utilities::LibolmEncodeError> {
-            let mut ret = self.key_id.encode(writer)?;
-
-            ret += self.published.encode(writer)?;
-            ret += self.public_key.encode(writer)?;
-            ret += self.private_key.encode(writer)?;
-
-            Ok(ret)
-        }
-    }
-
-    impl Decode for OneTimeKey {
-        fn decode(
-            reader: &mut impl std::io::Read,
-        ) -> Result<Self, crate::utilities::LibolmDecodeError> {
-            let key_id = u32::decode(reader)?;
-            let published = bool::decode(reader)?;
-            let public_key = <[u8; 32]>::decode(reader)?;
-            let private_key = <[u8; 32]>::decode_secret(reader)?;
-
-            Ok(Self { key_id, published, public_key, private_key })
-        }
     }
 
     impl From<&OneTimeKey> for FallbackKey {
@@ -481,9 +454,7 @@ mod libolm {
     }
 
     impl Decode for FallbackKeysArray {
-        fn decode(
-            reader: &mut impl std::io::Read,
-        ) -> Result<Self, crate::utilities::LibolmDecodeError> {
+        fn decode(reader: &mut impl std::io::Read) -> Result<Self, DecodeError> {
             let count = u8::decode(reader)?;
 
             let (fallback_key, previous_fallback_key) = if count >= 1 {
@@ -502,10 +473,7 @@ mod libolm {
     }
 
     impl Encode for FallbackKeysArray {
-        fn encode(
-            &self,
-            writer: &mut impl std::io::Write,
-        ) -> Result<usize, crate::utilities::LibolmEncodeError> {
+        fn encode(&self, writer: &mut impl std::io::Write) -> Result<usize, EncodeError> {
             let ret = match (&self.fallback_key, &self.previous_fallback_key) {
                 (None, None) => 0u8.encode(writer)?,
                 (Some(key), None) | (None, Some(key)) => {
@@ -527,7 +495,7 @@ mod libolm {
         }
     }
 
-    #[derive(Zeroize)]
+    #[derive(Zeroize, Encode, Decode)]
     #[zeroize(drop)]
     pub(super) struct Pickle {
         version: u32,
@@ -537,49 +505,6 @@ mod libolm {
         one_time_keys: Vec<OneTimeKey>,
         fallback_keys: FallbackKeysArray,
         next_key_id: u32,
-    }
-
-    impl Encode for Pickle {
-        fn encode(
-            &self,
-            writer: &mut impl std::io::Write,
-        ) -> Result<usize, crate::utilities::LibolmEncodeError> {
-            let mut ret = self.version.encode(writer)?;
-
-            ret += self.ed25519_keypair.encode(writer)?;
-            ret += self.public_curve25519_key.encode(writer)?;
-            ret += self.private_curve25519_key.encode(writer)?;
-            ret += self.one_time_keys.encode(writer)?;
-            ret += self.fallback_keys.encode(writer)?;
-            ret += self.next_key_id.encode(writer)?;
-
-            Ok(ret)
-        }
-    }
-
-    impl Decode for Pickle {
-        fn decode(
-            reader: &mut impl std::io::Read,
-        ) -> Result<Self, crate::utilities::LibolmDecodeError> {
-            let version = u32::decode(reader)?;
-
-            let ed25519_keypair = crate::utilities::LibolmEd25519Keypair::decode(reader)?;
-            let public_curve25519_key = <[u8; 32]>::decode(reader)?;
-            let private_curve25519_key = <[u8; 32]>::decode_secret(reader)?;
-            let one_time_keys = Vec::decode(reader)?;
-            let fallback_keys = FallbackKeysArray::decode(reader)?;
-            let next_key_id = u32::decode(reader)?;
-
-            Ok(Self {
-                version,
-                ed25519_keypair,
-                public_curve25519_key,
-                private_curve25519_key,
-                one_time_keys,
-                fallback_keys,
-                next_key_id,
-            })
-        }
     }
 
     impl TryFrom<&FallbackKey> for OneTimeKey {

@@ -18,10 +18,7 @@ mod libolm_compat;
 
 pub use base64::DecodeError;
 #[cfg(feature = "libolm-compat")]
-pub(crate) use libolm_compat::{
-    pickle_libolm, unpickle_libolm, Decode, DecodeSecret, Encode, LibolmDecodeError,
-    LibolmEd25519Keypair, LibolmEncodeError,
-};
+pub(crate) use libolm_compat::{pickle_libolm, unpickle_libolm, LibolmEd25519Keypair};
 
 /// Decode the input as base64 with no padding.
 pub fn base64_decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {

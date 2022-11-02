@@ -32,6 +32,7 @@ low-level-api = []
 aes = "0.8.1"
 arrayvec = { version = "0.7.2", features = ["serde"] }
 base64 = "0.13.0"
+binencode = { path = "../binencode/crates/binencode" }
 cbc = { version = "0.1.2", features = ["std"] }
 ed25519-dalek = { version = "1.0.1", default-features = false, features = [
     "rand",
