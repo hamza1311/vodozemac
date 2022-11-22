@@ -13,13 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_pickle::Decode;
+use matrix_pickle::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::Curve25519PublicKey;
 
 /// The set of keys that were used to establish the Olm Session,
-#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Decode)]
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Decode, Encode)]
 pub struct SessionKeys {
     pub identity_key: Curve25519PublicKey,
     pub base_key: Curve25519PublicKey,
