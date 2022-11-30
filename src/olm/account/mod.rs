@@ -357,6 +357,21 @@ impl Account {
         unpickle_libolm::<Pickle, _>(pickle, pickle_key, PICKLE_VERSION)
     }
 
+    /// Pickle an [`Account`] into a libolm pickle format.
+    ///
+    /// This pickle can be restored using the `[Account::from_libolm_pickle]`
+    /// method, or can be used in the [`libolm`] C library.
+    ///
+    /// The pickle will be encryptd using the pickle key.
+    ///
+    /// [`libolm`]: https://gitlab.matrix.org/matrix-org/olm/
+    #[cfg(feature = "libolm-compat")]
+    pub fn to_libolm_pickle(&self, pickle_key: &[u8]) -> Result<String, crate::LibolmPickleError> {
+        use self::libolm::Pickle;
+        use crate::utilities::pickle_libolm;
+        pickle_libolm::<Pickle>(self.into(), pickle_key)
+    }
+
     #[cfg(all(any(fuzzing, test), feature = "libolm-compat"))]
     pub fn from_decrypted_libolm_pickle(pickle: &[u8]) -> Result<Self, crate::LibolmPickleError> {
         use std::io::Cursor;
@@ -369,13 +384,6 @@ impl Account {
         let pickle = Pickle::decode(&mut cursor)?;
 
         pickle.try_into()
-    }
-
-    #[cfg(feature = "libolm-compat")]
-    pub fn to_libolm_pickle(&self, pickle_key: &[u8]) -> Result<String, crate::LibolmPickleError> {
-        use self::libolm::Pickle;
-        use crate::utilities::pickle_libolm;
-        pickle_libolm::<Pickle>(self.into(), pickle_key)
     }
 }
 

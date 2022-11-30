@@ -339,6 +339,14 @@ impl Session {
         unpickle_libolm::<Pickle, _>(pickle, pickle_key, libolm::PICKLE_VERSION)
     }
 
+    /// Pickle an [`Session`] into a libolm pickle format.
+    ///
+    /// This pickle can be restored using the [`Session::from_libolm_pickle`]
+    /// method, or can be used in the [`libolm`] C library.
+    ///
+    /// The pickle will be encryptd using the pickle key.
+    ///
+    /// [`libolm`]: https://gitlab.matrix.org/matrix-org/olm/
     #[cfg(feature = "libolm-compat")]
     pub fn to_libolm_pickle(&self, pickle_key: &[u8]) -> Result<String, crate::LibolmPickleError> {
         use self::libolm::Pickle;

@@ -141,15 +141,11 @@ impl GroupSession {
         pickle.into()
     }
 
-    #[cfg(feature = "libolm-compat")]
-    pub fn to_libolm_pickle(&self, pickle_key: &[u8]) -> Result<String, crate::LibolmPickleError> {
-        use libolm::Pickle;
-
-        use crate::utilities::pickle_libolm;
-
-        pickle_libolm::<Pickle>(self.into(), pickle_key)
-    }
-
+    /// Create a [`GroupSession`] object by unpickling a session pickle
+    /// in libolm legacy pickle format.
+    ///
+    /// Such pickles are encrypted and need to first be decrypted using
+    /// `pickle_key`.
     #[cfg(feature = "libolm-compat")]
     pub fn from_libolm_pickle(
         pickle: &str,
@@ -160,6 +156,24 @@ impl GroupSession {
         use crate::utilities::unpickle_libolm;
 
         unpickle_libolm::<Pickle, _>(pickle, pickle_key, PICKLE_VERSION)
+    }
+
+    /// Pickle an [`GroupSession`] into a libolm pickle format.
+    ///
+    /// This pickle can be restored using the
+    /// [`InboundGroupSession::from_libolm_pickle`] method, or can be used in
+    /// the [`libolm`] C library.
+    ///
+    /// The pickle will be encryptd using the pickle key.
+    ///
+    /// [`libolm`]: https://gitlab.matrix.org/matrix-org/olm/
+    #[cfg(feature = "libolm-compat")]
+    pub fn to_libolm_pickle(&self, pickle_key: &[u8]) -> Result<String, crate::LibolmPickleError> {
+        use libolm::Pickle;
+
+        use crate::utilities::pickle_libolm;
+
+        pickle_libolm::<Pickle>(self.into(), pickle_key)
     }
 }
 
