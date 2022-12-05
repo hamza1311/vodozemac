@@ -503,7 +503,7 @@ mod test {
         let alice_public_key = alice.public_key().to_base64();
         let bob_public_key = bob.public_key().to_base64();
 
-        let message = format!("ed25519:{}", BOB_DEVICE_ID);
+        let message = format!("ed25519:{BOB_DEVICE_ID}");
         let extra_info = format!(
             "{}{}{}{}{}{}{}",
             "MATRIX_KEY_VERIFICATION_MAC",
@@ -541,7 +541,7 @@ mod test {
         let alice_public_key = alice_on_dalek.public_key().to_base64();
         let bob_public_key = bob_on_libolm.public_key();
 
-        let message = format!("ed25519:{}", BOB_DEVICE_ID);
+        let message = format!("ed25519:{BOB_DEVICE_ID}");
         let extra_info = format!(
             "{}{}{}{}{}{}{}",
             "MATRIX_KEY_VERIFICATION_MAC",
