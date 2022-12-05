@@ -636,10 +636,7 @@ mod libolm {
 #[cfg(test)]
 mod test {
     use anyhow::{bail, Result};
-    use olm_rs::{
-        account::OlmAccount,
-        session::{OlmMessage, OlmSession},
-    };
+    use olm_rs::{account::OlmAccount, session::OlmSession};
 
     use super::Session;
     use crate::{
@@ -673,7 +670,7 @@ mod test {
         let olm_message = alice_session.encrypt(message);
         bob.mark_keys_as_published();
 
-        if let OlmMessage::PreKey(m) = olm_message.into() {
+        if let olm_rs::session::OlmMessage::PreKey(m) = olm_message.into() {
             let session =
                 bob.create_inbound_session_from(&alice.curve25519_key().to_base64(), m)?;
 
@@ -726,6 +723,8 @@ mod test {
     #[test]
     #[cfg(feature = "libolm-compat")]
     fn libolm_unpickling() -> Result<()> {
+        use crate::olm::OlmMessage;
+
         let (_, _, mut session, olm) = sessions()?;
 
         let plaintext = "It's a secret to everybody";
@@ -738,6 +737,15 @@ mod test {
         let message = session.encrypt("Hello");
         olm.decrypt(message.into())?;
 
+        for _ in 0..9 {
+            olm.encrypt(plaintext);
+        }
+
+        let message = olm.encrypt("Hello");
+        let (message_type, ciphertext) = message.to_tuple();
+        let message = OlmMessage::from_parts(message_type as usize, &ciphertext)?;
+        session.decrypt(&message)?;
+
         let key = b"DEFAULT_PICKLE_KEY";
         let pickle = olm.pickle(olm_rs::PicklingMode::Encrypted { key: key.to_vec() });
 
@@ -749,6 +757,11 @@ mod test {
 
         let message = unpickled.encrypt(plaintext);
 
+        assert_eq!(session.receiving_chains.len(), 1);
+        assert_eq!(
+            session.receiving_chains.iter().next().unwrap().skipped_message_keys.iter().len(),
+            9
+        );
         assert_eq!(session.decrypt(&message)?, plaintext.as_bytes());
 
         Ok(())
@@ -779,8 +792,17 @@ mod test {
     #[cfg(feature = "libolm-compat")]
     fn libolm_pickle_cycle() -> Result<()> {
         use crate::olm::OlmMessage;
+        let plaintext = "It's a secret to everybody";
 
         let (_, _, mut session, olm) = sessions()?;
+
+        for _ in 0..9 {
+            olm.encrypt(plaintext);
+        }
+
+        for _ in 0..9 {
+            session.encrypt(plaintext);
+        }
 
         let message = olm.encrypt("It's a secret to everybody");
         let (message_type, ciphertext) = message.to_tuple();
@@ -796,6 +818,15 @@ mod test {
 
         assert_eq!(olm.session_id(), libolm_session.session_id());
 
+        let repickle =
+            libolm_session.pickle(olm_rs::PicklingMode::Encrypted { key: PICKLE_KEY.to_vec() });
+        let session = Session::from_libolm_pickle(&repickle, &PICKLE_KEY)?;
+
+        assert_eq!(olm.session_id(), session.session_id());
+        assert_eq!(
+            session.receiving_chains.iter().next().unwrap().skipped_message_keys.iter().len(),
+            9
+        );
         Ok(())
     }
 }
