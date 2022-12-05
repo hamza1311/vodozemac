@@ -255,6 +255,45 @@ mod test {
 
     #[test]
     #[cfg(feature = "libolm-compat")]
+    fn libolm_pickle_cycle() -> Result<()> {
+        let key = b"DEFAULT_PICKLE_KEY";
+        let session = GroupSession::new(SessionConfig::version_1());
+
+        let pickle = session.to_libolm_pickle(key)?;
+
+        let olm = OlmOutboundGroupSession::unpickle(
+            pickle,
+            olm_rs::PicklingMode::Encrypted { key: key.to_vec() },
+        )?;
+
+        assert_eq!(olm.session_id(), session.session_id());
+        assert_eq!(olm.session_message_index(), session.message_index());
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "libolm-compat")]
+    fn libolm_inbound_pickle_cycle() -> Result<()> {
+        let key = b"DEFAULT_PICKLE_KEY";
+        let session = GroupSession::new(SessionConfig::version_1());
+        let session = InboundGroupSession::from(&session);
+
+        let pickle = session.to_libolm_pickle(key)?;
+
+        let olm = OlmInboundGroupSession::unpickle(
+            pickle,
+            olm_rs::PicklingMode::Encrypted { key: key.to_vec() },
+        )?;
+
+        assert_eq!(olm.session_id(), session.session_id());
+        assert_eq!(olm.first_known_index(), session.first_known_index());
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "libolm-compat")]
     fn libolm_inbound_unpickling() -> Result<()> {
         let session = GroupSession::new(SessionConfig::version_1());
         let session_key = session.session_key();
