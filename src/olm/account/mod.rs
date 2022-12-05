@@ -983,6 +983,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "libolm-compat")]
     fn libolm_pickle_cycle() -> Result<()> {
         let olm = OlmAccount::new();
         olm.generate_one_time_keys(10);

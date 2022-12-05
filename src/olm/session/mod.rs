@@ -776,8 +776,16 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "libolm-compat")]
     fn libolm_pickle_cycle() -> Result<()> {
-        let (_, _, session, olm) = sessions()?;
+        use crate::olm::OlmMessage;
+
+        let (_, _, mut session, olm) = sessions()?;
+
+        let message = olm.encrypt("It's a secret to everybody");
+        let (message_type, ciphertext) = message.to_tuple();
+        let message = OlmMessage::from_parts(message_type as usize, &ciphertext)?;
+        let _ = session.decrypt(&message)?;
 
         let vodozemac_pickle = session.to_libolm_pickle(&PICKLE_KEY)?;
 
