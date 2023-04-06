@@ -22,8 +22,9 @@ use ed25519_dalek::{
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use zeroize::Zeroize;
 
-use crate::utilities::{base64_decode, base64_encode};
+use crate::utilities::{base64_decode, base64_decode_slice, base64_encode};
 
 /// Error type describing signature verification failures.
 #[derive(Debug, Error)]
@@ -211,10 +212,20 @@ impl Ed25519PublicKey {
     /// Instantiate a Ed25519PublicKey public key from an unpadded base64
     /// representation.
     pub fn from_base64(base64_key: &str) -> Result<Self, crate::KeyError> {
-        let decoded = base64_decode(base64_key)?;
-        let key =
-            decoded.try_into().map_err(|_| crate::KeyError::InvalidKeyLength(decoded.len()))?;
-        Self::from_slice(&key)
+        // 48 base64 bytes are 32 decoded bytes
+        let base64_len = base64_key.len();
+        if base64_len != 48 {
+            // https://stackoverflow.com/a/45401395
+            let decoded_len = (base64_len * 8 + 6 - 1) / 6;
+            return Err(crate::KeyError::InvalidKeyLength(decoded_len));
+        }
+
+        let mut key = [0u8; 32];
+        let decoded = base64_decode_slice(base64_key, &mut key)?;
+
+        let res = Self::from_slice(&key);
+        key.zeroize();
+        res
     }
 
     /// Serialize a Ed25519PublicKey public key to an unpadded base64

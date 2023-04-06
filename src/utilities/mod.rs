@@ -25,6 +25,12 @@ pub fn base64_decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
     base64::decode_config(input, base64::STANDARD_NO_PAD)
 }
 
+/// Decode the input as base64 with no padding into the given buffer.
+pub fn base64_decode_slice(input: impl AsRef<[u8]>, output: &mut [u8]) -> Result<(), DecodeError> {
+    base64::decode_config_slice(input, base64::STANDARD_NO_PAD, output)?;
+    Ok(())
+}
+
 /// Encode the input as base64 with no padding.
 pub fn base64_encode(input: impl AsRef<[u8]>) -> String {
     base64::encode_config(input, base64::STANDARD_NO_PAD)
